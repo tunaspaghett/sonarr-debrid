@@ -172,3 +172,4 @@ cython_debug/
 filtered.json
 episodes.json
 data.json
+*.json
