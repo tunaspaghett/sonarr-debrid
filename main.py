@@ -198,7 +198,6 @@ def start_torrent_download(response):
     conn.request("POST", "/rest/1.0/torrents/selectFiles/" + torrent_id, payload, headers)
     res = conn.getresponse()
     data = res.read()
-    print(data)
     return data.decode("utf-8")
 
 def loop_results(results):
@@ -295,9 +294,7 @@ def update_library():
 def update_jellyfin_library():
     """connect to jellyfin and update the library"""
     host,port,api_key = (os.getenv(key) for key in ["JELLYFIN_HOST","JELLYFIN_PORT","JELLYFIN_API_TOKEN"])
-    print(f'{api_key}')
     conn = http.client.HTTPConnection(host, int(port))
-    print(host,port)
     payload = ''
     headers = {
     'Authorization': api_key
