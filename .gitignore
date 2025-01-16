@@ -171,3 +171,4 @@ cython_debug/
 .pypirc
 filtered.json
 episodes.json
+data.json
