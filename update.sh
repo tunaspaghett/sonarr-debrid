@@ -17,18 +17,6 @@ function update_linux {
   fi
 }
 
-# Function to update on Windows
-function update_windows {
-  echo "Pulling the latest changes from the repository..."
-  git pull origin main > NUL 2>&1
-  if %errorlevel% == 0 (
-    echo "Repository updated successfully!"
-    check_for_new_release
-  ) else (
-    echo "Error occurred while pulling changes."
-  )
-}
-
 # Function to check for new releases
 function check_for_new_release {
   echo "Checking for new releases..."
@@ -47,15 +35,4 @@ function check_for_new_release {
 }
 
 # Check the operating system and call the appropriate function
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-  update_linux
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-  update_linux
-elif [[ "$OSTYPE" == "cygwin" ]]; then
-  update_windows
-elif [[ "$OSTYPE" == "msys" ]]; then
-  update_windows
-else
-  echo "Unsupported OS. Exiting."
-  exit 1
-fi
+update_linux
