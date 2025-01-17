@@ -150,46 +150,55 @@ def remove_different_languages(possible):
     return [item for item in possible if not any(banned_word in item['title'] for banned_word in banned_words)]
 
         
-def send_request_to_real_debrid(endpoint, data=None):
-    """
-    Send a POST request to Real-Debrid API with given endpoint and data.
-    """
+def send_magnet_debrid(magnet):
+    """This is a mess, but adding the magnet link to the body form and getting RD to add it to library"""
     rd_key = os.getenv("DEBRID_KEY")
     conn = http.client.HTTPSConnection("api.real-debrid.com")
+    dataList = []
     boundary = 'wL36Yn8afVp8Ag7AmP8qZ0SA4n1v9T'
-
-    dataList = [
-        encode('--' + boundary),
-        encode('Content-Disposition: form-data; name={};'.format(data.keys()[0] if data else '')),
-        encode('Content-Type: {}'.format('text/plain')),
-        encode(''),
-        encode(data.get(next(iter(data.keys())), '')) if data else encode(''),
-        encode('--' + boundary + '--'),
-        encode('')
-    ]
+    dataList.append(encode('--' + boundary))
+    dataList.append(encode('Content-Disposition: form-data; name=magnet;'))
+    dataList.append(encode('Content-Type: {}'.format('text/plain')))
+    dataList.append(encode(''))
+    dataList.append(encode(magnet))
+    dataList.append(encode('--'+boundary+'--'))
+    dataList.append(encode(''))
     body = b'\r\n'.join(dataList)
     payload = body
     headers = {
-        'Authorization': f'Bearer {rd_key}',
-        'Content-type': 'multipart/form-data; boundary={}'.format(boundary)
+    'Authorization': f'Bearer {rd_key}',
+    'Content-type': 'multipart/form-data; boundary={}'.format(boundary)
     }
-
-    conn.request("POST", endpoint, payload, headers)
+    conn.request("POST", "/rest/1.0/torrents/addMagnet", payload, headers)
     res = conn.getresponse()
-    return res.read().decode("utf-8")
-
-def send_magnet_debrid(magnet):
-    """Send the magnet link to Real-Debrid."""
-    endpoint = "/rest/1.0/torrents/addMagnet"
-    data = {"magnet": magnet}
-    return send_request_to_real_debrid(endpoint, data)
+    data = res.read()
+    return data.decode("utf-8")
 
 def start_torrent_download(response):
-    """Start the download for a given torrent using Real-Debrid."""
     torrent_id = json.loads(response)["id"]
-    endpoint = "/rest/1.0/torrents/selectFiles/" + torrent_id
-    data = {"files": "all"}
-    return send_request_to_real_debrid(endpoint, data)
+    """We need to find the torrent on RD and start the download for some reason"""
+    #yes this is copied from above, but it's the easiest way for now because it's so damn finnicky
+    rd_key = os.getenv("DEBRID_KEY")
+    conn = http.client.HTTPSConnection("api.real-debrid.com")
+    dataList = []
+    boundary = 'wL36Yn8afVp8Ag7AmP8qZ0SA4n1v9T'
+    dataList.append(encode('--' + boundary))
+    dataList.append(encode('Content-Disposition: form-data; name=files;'))
+    dataList.append(encode('Content-Type: {}'.format('text/plain')))
+    dataList.append(encode(''))
+    dataList.append(encode("all"))
+    dataList.append(encode('--'+boundary+'--'))
+    dataList.append(encode(''))
+    body = b'\r\n'.join(dataList)
+    payload = body
+    headers = {
+    'Authorization': f'Bearer {rd_key}',
+    'Content-type': 'multipart/form-data; boundary={}'.format(boundary)
+    }
+    conn.request("POST", "/rest/1.0/torrents/selectFiles/" + torrent_id, payload, headers)
+    res = conn.getresponse()
+    data = res.read()
+    return data.decode("utf-8")
 
 def loop_results(results):
     """
@@ -212,24 +221,30 @@ def loop_episodes(data):
             print(f"Found {len(results['streams'])} possible torrents")
             sorted_results = loop_results(results)
             filtered_results = remove_different_languages(sorted_results)
+            #Need to find the quality profile, find the qualities that match that profile and then filter results
+            quality_profile_id = get_quality_profile_id(episode)
+            print(quality_profile_id)
             if os.getenv("HDR_MODE") == "false":
                 print("Removing HDR entries as HDR_MODE is disabled in the environment.")
                 filtered_results = filter_hdr(filtered_results)
             if filtered_results:
                 magnet = find_magnet(filtered_results[0])
                 print(f"Best torrent magnet: {magnet}")
-                rd_response = send_magnet_debrid(magnet)
-                print(rd_response)
+                #rd_response = send_magnet_debrid(magnet)
                 print("Sent magnet to debrid")
-                #files = select_files_from_rd(json.loads(rd_response)["id"])
-                #files = format_files(files)
-                start_torrent_download(rd_response)
+                #start_torrent_download(rd_response)
                 print("Removing episode from watch list")
                 time.sleep(3)
-                remove_episode(episode)
+                #remove_episode(episode)
                 should_update_library = True
     if should_update_library:
         update_library() # we only update plex/jellyfin if an episode was downloaded
+
+def get_quality_profile_id(episode):
+    """Find the quality profile id set in sonarr"""
+    return episode["series"]["qualityProfileId"]
+
+
 def remove_episode(episode):
     """
     Removing from search. Not from the json, because we need to know we already downloaded it 
@@ -300,7 +315,7 @@ async def get_calendar():
     """
     api_key, host, port = set_env()
     conn = connect_http(host, port)
-    send_request(f"{api_key}", conn, "/api/v3/calendar")
+    send_request(f"{api_key}&start=2025-01-16", conn, "/api/v3/calendar")
     return decode_response(get_response(conn))
 
 # Flag to control the loop
