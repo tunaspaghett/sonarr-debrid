@@ -150,55 +150,46 @@ def remove_different_languages(possible):
     return [item for item in possible if not any(banned_word in item['title'] for banned_word in banned_words)]
 
         
-def send_magnet_debrid(magnet):
-    """This is a mess, but adding the magnet link to the body form and getting RD to add it to library"""
+def send_request_to_real_debrid(endpoint, data=None):
+    """
+    Send a POST request to Real-Debrid API with given endpoint and data.
+    """
     rd_key = os.getenv("DEBRID_KEY")
     conn = http.client.HTTPSConnection("api.real-debrid.com")
-    dataList = []
     boundary = 'wL36Yn8afVp8Ag7AmP8qZ0SA4n1v9T'
-    dataList.append(encode('--' + boundary))
-    dataList.append(encode('Content-Disposition: form-data; name=magnet;'))
-    dataList.append(encode('Content-Type: {}'.format('text/plain')))
-    dataList.append(encode(''))
-    dataList.append(encode(magnet))
-    dataList.append(encode('--'+boundary+'--'))
-    dataList.append(encode(''))
+
+    dataList = [
+        encode('--' + boundary),
+        encode('Content-Disposition: form-data; name={};'.format(data.keys()[0] if data else '')),
+        encode('Content-Type: {}'.format('text/plain')),
+        encode(''),
+        encode(data.get(next(iter(data.keys())), '')) if data else encode(''),
+        encode('--' + boundary + '--'),
+        encode('')
+    ]
     body = b'\r\n'.join(dataList)
     payload = body
     headers = {
-    'Authorization': f'Bearer {rd_key}',
-    'Content-type': 'multipart/form-data; boundary={}'.format(boundary)
+        'Authorization': f'Bearer {rd_key}',
+        'Content-type': 'multipart/form-data; boundary={}'.format(boundary)
     }
-    conn.request("POST", "/rest/1.0/torrents/addMagnet", payload, headers)
+
+    conn.request("POST", endpoint, payload, headers)
     res = conn.getresponse()
-    data = res.read()
-    return data.decode("utf-8")
+    return res.read().decode("utf-8")
+
+def send_magnet_debrid(magnet):
+    """Send the magnet link to Real-Debrid."""
+    endpoint = "/rest/1.0/torrents/addMagnet"
+    data = {"magnet": magnet}
+    return send_request_to_real_debrid(endpoint, data)
 
 def start_torrent_download(response):
+    """Start the download for a given torrent using Real-Debrid."""
     torrent_id = json.loads(response)["id"]
-    """We need to find the torrent on RD and start the download for some reason"""
-    #yes this is copied from above, but it's the easiest way for now because it's so damn finnicky
-    rd_key = os.getenv("DEBRID_KEY")
-    conn = http.client.HTTPSConnection("api.real-debrid.com")
-    dataList = []
-    boundary = 'wL36Yn8afVp8Ag7AmP8qZ0SA4n1v9T'
-    dataList.append(encode('--' + boundary))
-    dataList.append(encode('Content-Disposition: form-data; name=files;'))
-    dataList.append(encode('Content-Type: {}'.format('text/plain')))
-    dataList.append(encode(''))
-    dataList.append(encode("all"))
-    dataList.append(encode('--'+boundary+'--'))
-    dataList.append(encode(''))
-    body = b'\r\n'.join(dataList)
-    payload = body
-    headers = {
-    'Authorization': f'Bearer {rd_key}',
-    'Content-type': 'multipart/form-data; boundary={}'.format(boundary)
-    }
-    conn.request("POST", "/rest/1.0/torrents/selectFiles/" + torrent_id, payload, headers)
-    res = conn.getresponse()
-    data = res.read()
-    return data.decode("utf-8")
+    endpoint = "/rest/1.0/torrents/selectFiles/" + torrent_id
+    data = {"files": "all"}
+    return send_request_to_real_debrid(endpoint, data)
 
 def loop_results(results):
     """
