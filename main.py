@@ -201,6 +201,7 @@ def loop_episodes(data):
     """
     Process each episode in the given data, find torrents, and display magnet links.
     """
+    should_update_library = False
     for episode in data:
         imdb_id = see_if_imdb_exists(episode)
         if imdb_id != "0":
@@ -226,7 +227,9 @@ def loop_episodes(data):
                 print("Removing episode from watch list")
                 time.sleep(3)
                 remove_episode(episode)
-
+                should_update_library = True
+    if should_update_library:
+        update_library() # we only update plex/jellyfin if an episode was downloaded
 def remove_episode(episode):
     """
     Removing from search. Not from the json, because we need to know we already downloaded it 
@@ -315,7 +318,6 @@ async def main():
         print("Calendar updated, searching backlog")
         time.sleep(5)
         check_for_torrents()
-        update_library()
         print("Finished, see you soon")
     except Exception as e:
         traceback.print_exc()
