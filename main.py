@@ -10,6 +10,8 @@ import threading
 import sys
 from codecs import encode
 import time
+import re
+import itertools
 
 # Load environment variables
 load_dotenv()
@@ -109,6 +111,12 @@ def insert_episode(episode, file_path='data.json'):
     # Save the updated data back to the file
     time.sleep(5)
     save_json(data, file_path)
+
+def split_by_dash_and_space(s):
+    split_by_dash = s.split('-')
+    split_results = [item.split() for item in split_by_dash]
+    flattened = list(itertools.chain.from_iterable(split_results))
+    return flattened
 
 def send_torrent_io_request(url):
     """
@@ -222,28 +230,99 @@ def loop_episodes(data):
             sorted_results = loop_results(results)
             filtered_results = remove_different_languages(sorted_results)
             #Need to find the quality profile, find the qualities that match that profile and then filter results
-            quality_profile_id = get_quality_profile_id(episode)
-            print(quality_profile_id)
+            filtered_results = handle_quality_filtering(episode,filtered_results) #now we have the words that we need to match
+            #ideally we'd search for both 1080p and WEB_DL seperately, but if we match for two out of the array it works for now
+
             if os.getenv("HDR_MODE") == "false":
                 print("Removing HDR entries as HDR_MODE is disabled in the environment.")
                 filtered_results = filter_hdr(filtered_results)
             if filtered_results:
                 magnet = find_magnet(filtered_results[0])
+                #print(filtered_results[0])
                 print(f"Best torrent magnet: {magnet}")
-                #rd_response = send_magnet_debrid(magnet)
+                rd_response = send_magnet_debrid(magnet)
                 print("Sent magnet to debrid")
-                #start_torrent_download(rd_response)
+                start_torrent_download(rd_response)
                 print("Removing episode from watch list")
                 time.sleep(3)
-                #remove_episode(episode)
+                remove_episode(episode)
                 should_update_library = True
     if should_update_library:
         update_library() # we only update plex/jellyfin if an episode was downloaded
+
+
+def handle_quality_filtering(episode,results):
+    """Getting the right qualities takes some work. Logic handled here just to save the loop function"""
+    #First we need to get the quality profile id from the episode.
+    quality_profile_id = get_quality_profile_id(episode)
+    #Now we have that, we need to get the profile associated with that id
+    quality_profile = get_quality_profile(quality_profile_id)
+    #This gives us all possible qualities with allowed or not allowed. We need to break that down into the actual words we can search for
+    quality_terms = get_quality_terms(quality_profile)
+    #Big list of arrays of words, eg 1080p-webdl etc. We need to split those into individual search terms.
+    split_terms = split_quality_terms(quality_terms)
+    #now we have an array of all the individual terms we can use to search and match
+    results = match_quality_torrents(split_terms,results)
+    return results
+
+def match_quality_torrents(terms,results):
+    """Take the terms we are using to search for quality and resolution, and then match that to torrents"""
+    filtered_torrents = []
+    for result in results:
+        if does_match_two_terms(terms,result["title"]):
+            filtered_torrents.append(result)
+    return filtered_torrents
+    
+def does_match_two_terms(terms,result):
+    """Finds if the torrent name contains more than two terms"""
+    matches = [term for term in terms if term.lower() in result.lower()]
+    return len(matches) >= 2
 
 def get_quality_profile_id(episode):
     """Find the quality profile id set in sonarr"""
     return episode["series"]["qualityProfileId"]
 
+def get_quality_profile(id):
+    """Loop through the quality profile and find all matching qualities. It can be many."""
+    api_key,host,port = set_env()
+    conn = connect_http(host,port)
+    send_request(api_key,conn,f"/api/v3/qualityprofile/{id}")
+    return json.loads(decode_response(get_response(conn)))
+
+def get_quality_terms(quality_profile):
+    quality_terms = []
+    qualities_allowed = []
+    for item in quality_profile["items"]:
+        if get_quality_allowed(item):
+            temp_array = get_individual_qualities(item)
+            for temp in temp_array:
+                quality_terms.append(temp)
+    print(f"Qualities allowed by the profile: {quality_terms}")
+    return quality_terms
+
+def get_quality_name(quality_item):
+    """Get the quality name for the individual quality"""
+    return quality_item["quality"]["name"] if quality_item.get("quality") else quality_item["name"] if quality_item.get("name") else None
+
+def get_quality_allowed(quality_item):
+    """Is the quality allowed in the profile for the episode"""
+    return quality_item["allowed"] if quality_item.get("allowed") else False
+
+def get_individual_qualities(quality_item):
+    """Some of the qualities have individual items in an array, otherwise return the name and dont bother"""
+    qualities = []
+    if len(quality_item["items"]) > 0:
+        for item in quality_item["items"]:
+            qualities.append(item["quality"]["name"])
+    else:
+        qualities.append(get_quality_name(quality_item))
+    return qualities
+
+def split_quality_terms(terms):
+    """Split the term array by dashes and spaces to get resolution and quality seperately"""
+    split_terms = [split_by_dash_and_space(t) for t in terms]
+    flattened_list = list(itertools.chain.from_iterable(split_terms))
+    return flattened_list
 
 def remove_episode(episode):
     """
@@ -307,15 +386,13 @@ def update_jellyfin_library():
     conn.request("POST", "/Library/Refresh", payload, headers)
     res = conn.getresponse()
     data = res.read()
-    print(data.decode("utf-8"))
-
 async def get_calendar():
     """
     Retrieve the calendar data from the API.
     """
     api_key, host, port = set_env()
     conn = connect_http(host, port)
-    send_request(f"{api_key}&start=2025-01-16", conn, "/api/v3/calendar")
+    send_request(f"{api_key}", conn, "/api/v3/calendar")
     return decode_response(get_response(conn))
 
 # Flag to control the loop
