@@ -226,10 +226,6 @@ def loop_episodes(data):
                 print("Removing episode from watch list")
                 time.sleep(3)
                 remove_episode(episode)
-                update_sonarr(episode)
-
-def update_sonarr(episode):
-    episode["hasFile"] = True
 
 def remove_episode(episode):
     """
